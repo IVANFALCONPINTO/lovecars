@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+.DS_Store
+**/ms-playwright/
+playwright-report/
+test-results/
+output/
+data/**
+!data/*.csv
+!data/*.json
+!data/manifest.json
+!data/.gitkeep
+data/media/**
+data/lovecars_descriptions/**
+node_modules/
