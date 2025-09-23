@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"/>
+  <title>Monitor LoveCars</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <style>
+    body{font-family:system-ui,Segoe UI,Roboto,Arial;margin:24px;max-width:1200px}
+    .grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(280px,1fr))}
+    .card{border:1px solid #eee;border-radius:12px;padding:12px}
+    .pill{display:inline-block;padding:4px 8px;border-radius:999px;background:#eef}
+    .muted{color:#666;font-size:13px}
+    h1{margin:0 0 8px 0}
+    table{border-collapse:collapse;width:100%}
+    th,td{border-bottom:1px solid #eee;padding:6px;text-align:left;font-size:14px}
+    a{color:#2563eb;text-decoration:none}
+    .note{color:#666;font-size:12px}
+    .btn{background:#2563eb;color:#fff;border:none;border-radius:8px;padding:6px 10px;cursor:pointer}
+    .wrap{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  </style>
+</head>
+<body>
+  <h1>Monitor LoveCars</h1>
+  <div class="muted">Datos publicados desde GitHub</div>
+  <p id="status" class="pill">Cargando…</p>
+
+  <h2>Resumen de hoy</h2>
+  <div id="resume" class="grid"></div>
+
+  <h2>Descargas</h2>
+  <ul id="links"></ul>
+
+  <h2>Diario (Altas / Bajas)</h2>
+  <div class="wrap">
+    <div id="dayButtons" class="wrap"></div>
+    <div class="wrap">
+      <input type="date" id="dayPicker"/>
+      <button class="btn" id="btnGoDay">Ver día</button>
+    </div>
+    <span id="dayStatus" class="note"></span>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:10px">
+    <div>
+      <h3>Altas en <span id="dayLabelA"></span> <span class="pill" id="countA"></span></h3>
+      <div id="altasList" style="display:grid;gap:10px"></div>
+    </div>
+    <div>
+      <h3>Bajas en <span id="dayLabelB"></span> <span class="pill" id="countB"></span></h3>
+      <div id="bajasList" style="display:grid;gap:10px"></div>
+    </div>
+  </div>
+
+  <h2 style="margin-top:20px">Vista rápida (primeros 30 activos del master)</h2>
+  <table id="tbl"><thead></thead><tbody></tbody></table>
+
+<script>
+const USER = "IVAN";  // <-- EDITA
+const REPO = "love_autoscout_monitor";     // <-- EDITA
+const BRANCH = "main";
+const RAW = `https://raw.githubusercontent.com/${USER}/${REPO}/${BRANCH}`;
+
+async function csvToArray(url) {
+  const r = await fetch(url);
+  if(!r.ok) throw new Error("HTTP "+r.status);
+  const t = await r.text();
+  const lines = t.trim().split(/\r?\n/);
+  if(!lines.length) return [];
+  const H = lines.shift().split(',').map(h=>h.replace(/^"|"$/g,''));
+  return lines.map(line=>{
+    const cols = line.match(/("([^"]|"")*"|[^,]*)/g).filter(Boolean)
+      .map(s=>s.replace(/^"|"$/g,'').replace(/""/g,'"'));
+    const o={}; H.forEach((h,i)=>o[h]=cols[i]??"");
+    return o;
+  });
+}
+
+function toISO(v){
+  if(!v) return '';
+  const m = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if(m){
+    const d = m[1].padStart(2,'0'), mo = m[2].padStart(2,'0'), y = m[3];
+    return `${y}-${mo}-${d}`;
+  }
+  return v;
+}
+
+function cardHTML(it){
+  const price = it.price ? (Number(it.price).toLocaleString('es-ES')+' €') : '';
+  const km = it.km ? (Number(it.km).toLocaleString('es-ES')+' km') : '';
+  const year = it.year||'';
+  const meta = [year, km, price].filter(Boolean).join(' · ');
+  const img = it.thumb || '';
+  const link = it.link ? `<a href="${it.link}" target="_blank" rel="noopener">ver</a>` : '';
+  return `
+  <div class="card">
+    ${img?`<img src="${img}" loading="lazy" style="width:120px;height:90px;object-fit:cover;border-radius:8px;border:1px solid #ddd;background:#fafafa">`:''}
+    <div>
+      <div style="font-weight:600">${it.title||''}</div>
+      <div class="note">${meta}</div>
+      <div class="note">ID: ${it.listing_id||''} · ${link}</div>
+      <div class="note">Visto: ${it.first_seen||''} → ${it.last_seen||''} ${it.removed_on?('· Baja: '+it.removed_on):''}</div>
+    </div>
+  </div>`;
+}
+
+async function fetchJSON(u){ const r=await fetch(u); if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }
+
+(async()=>{
+  const sEl = document.getElementById('status');
+  try{
+    const man = await fetchJSON(`${RAW}/data/manifest.json`);
+    sEl.textContent = `Fecha: ${man.today}`;
+
+    // enlaces
+    const L = document.getElementById('links');
+    function add(name, path){
+      if(!path) return;
+      const li=document.createElement('li');
+      const a=document.createElement('a');
+      a.href = `${RAW}/${path}`; a.target="_blank"; a.rel="noopener"; a.textContent = name;
+      li.appendChild(a); L.appendChild(li);
+    }
+    add("Inventario día (CSV)", man.consolidated_csv);
+    add("Eventos de precio día (CSV)", man.price_events_csv);
+    add("Histórico master (CSV)", man.master_csv);
+
+    // resumen
+    const master = await csvToArray(`${RAW}/${man.master_csv}`);
+    const today = man.today;
+    const activos = master.filter(x=>x.status==="active").length;
+    const altas = master.filter(x=>x.first_seen===today).length;
+    const bajas = master.filter(x=>x.removed_on===today).length;
+    const resume = document.getElementById('resume');
+    for(const [k,v] of [["Activos",activos],["Altas hoy",altas],["Bajas hoy",bajas]]){
+      const d=document.createElement('div'); d.className="card"; d.innerHTML=`<div style="font-size:13px">${k}</div><div style="font-size:28px;font-weight:700">${v}</div>`;
+      resume.appendChild(d);
+    }
+
+    // días disponibles
+    const daysSet = new Set(master.flatMap(r=>[r.first_seen, r.removed_on]).filter(Boolean));
+    const days = Array.from(daysSet).sort().reverse().slice(0,7);
+    const box = document.getElementById('dayButtons');
+    const picker = document.getElementById('dayPicker');
+    picker.value = days[0] || today;
+    for(const day of days){
+      const b=document.createElement('button'); b.className='btn'; b.textContent=day;
+      b.onclick = ()=> loadDay(day, master);
+      box.appendChild(b);
+    }
+    async function loadDay(day, masterData){
+      const st = document.getElementById('dayStatus');
+      st.textContent = 'Cargando '+day+'…';
+      const altas = masterData.filter(x=>x.first_seen===day);
+      const bajas = masterData.filter(x=>x.removed_on===day);
+      document.getElementById('dayLabelA').textContent = day;
+      document.getElementById('dayLabelB').textContent = day;
+      document.getElementById('countA').textContent = altas.length;
+      document.getElementById('countB').textContent = bajas.length;
+      const A = document.getElementById('altasList');
+      const B = document.getElementById('bajasList');
+      const toCard = r => {
+        const imgf = r.image_file || r.image || "";
+        const thumb = imgf?.startsWith('http') ? imgf : (imgf ? `${RAW}/data/${imgf}` : "");
+        return cardHTML({
+          title: [r.brand,r.model,r.version].filter(Boolean).join(' '),
+          year: r.year, km: r.km, price: r.last_price || r.price,
+          link: r.link, first_seen: r.first_seen, last_seen: r.last_seen,
+          removed_on: r.removed_on, listing_id: r.listing_id, thumb
+        });
+      };
+      A.innerHTML = altas.map(toCard).join('');
+      B.innerHTML = bajas.map(toCard).join('');
+      st.textContent = 'OK';
+    }
+    document.getElementById('btnGoDay').onclick = ()=>{
+      const raw = document.getElementById('dayPicker').value;
+      loadDay(toISO(raw), master);
+    };
+
+    // tabla rápida
+    const T=document.getElementById('tbl');
+    const heads=["brand","model","version","year","km","last_price","status","first_seen","last_seen","removed_on","link"];
+    T.querySelector('thead').innerHTML = `<tr>${heads.map(h=>`<th>${h}</th>`).join('')}</tr>`;
+    const sample = master.filter(x=>x.status==="active").slice(0,30);
+    T.querySelector('tbody').innerHTML = sample.map(r=>`<tr>${heads.map(h=>{
+      const v = (r[h]||"");
+      return h==="link" ? `<td><a href="${v}" target="_blank" rel="noopener">ver</a></td>` : `<td>${v}</td>`;
+    }).join('')}</tr>`).join('');
+  }catch(e){
+    document.getElementById('status').textContent = "Error cargando datos";
+    console.error(e);
+  }
+})();
+</script>
+</body></html>
+
