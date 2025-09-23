@@ -1,0 +1,179 @@
+<!doctype html><meta charset="utf-8">
+<title>Monitor LoveCars · AutoScout24</title>
+<style>
+body{background:#0f172a;color:#e5e7eb;font:14px/1.45 system-ui;margin:0}
+.wrap{max-width:1200px;margin:0 auto;padding:16px}
+.btn{background:#2563eb;color:#fff;border:0;border-radius:10px;padding:10px 14px;cursor:pointer}
+.panel{background:#111827;border-radius:12px;padding:12px;margin-top:12px}
+.note{color:#94a3b8}
+table{width:100%;border-collapse:collapse}
+th,td{padding:8px;border-bottom:1px solid #1f2937;vertical-align:top}
+th{position:sticky;top:0;background:#0b1220}
+img.thumb{width:90px;height:auto;border-radius:8px}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:10px 0}
+.k{background:#0b1220;border:1px solid #1f2937;border-radius:12px;padding:10px}
+.k .v{font-weight:700;font-size:18px}
+</style>
+<div class="wrap">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+    <div>
+      <h2 style="margin:0">Monitor · LoveCars (AutoScout24)</h2>
+      <div class="note">Última ejecución: {{ last_run or '—' }}</div>
+    </div>
+    <button id="btn" class="btn">🔄 Actualizar ahora</button>
+  </div>
+
+  <div class="kpis">
+    <div class="k"><div class="note">Visibles hoy</div><div class="v">{{ inv|length }}</div></div>
+    <div class="k"><div class="note">Altas hoy</div><div class="v">{{ altas|length }}</div></div>
+    <div class="k"><div class="note">Bajas hoy</div><div class="v">{{ bajas|length }}</div></div>
+    <div class="k"><div class="note">Cambios de precio</div><div class="v">{{ pe|length }}</div></div>
+  </div>
+
+  <div class="panel">
+    <h3 style="margin:0 0 8px">Inventario</h3>
+    {% if inv %}
+    <table>
+      <thead><tr>
+        <th>Foto</th><th>Título</th><th>Año</th><th>Km</th><th>Comb.</th><th>Cambio</th>
+        <th>Precio</th><th>Cat.</th><th>Enlace</th>
+      </tr></thead>
+      <tbody>
+        {% for r in inv %}
+        <tr>
+          <td>{% if r.image_file %}<img class="thumb" src="/media/{{ r.image_file }}">{% endif %}</td>
+          <td><strong>{{ r.brand }} {{ r.model }}</strong><div class="note">{{ r.version }}</div></td>
+          <td>{{ r.year }}</td><td>{{ r.km }}</td><td>{{ r.fuel }}</td><td>{{ r.gearbox }}</td>
+          <td>{{ r.last_price }}</td><td>{{ r.category }}</td>
+          <td><a href="{{ r.link }}" target="_blank">Abrir</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<div class="note">Sin inventario todavía. Pulsa “Actualizar ahora”.</div>{% endif %}
+  </div>
+
+  <div class="panel">
+    <h3 style="margin:0 0 8px">Altas hoy</h3>
+    {% if altas %}<ul>{% for r in altas %}<li>{{ r.brand }} {{ r.model }} {{ r.version }} — {{ r.last_price }} €</li>{% endfor %}</ul>{% else %}<div class="note">Sin altas hoy.</div>{% endif %}
+  </div>
+
+  <div class="panel">
+    <h3 style="margin:0 0 8px">Bajas hoy</h3>
+    {% if bajas %}<ul>{% for r in bajas %}<li>{{ r.brand }} {{ r.model }} {{ r.version }} — visto: {{ r.first_seen }} — vendido: {{ r.removed_on }} — días: {{ r.days_active }}</li>{% endfor %}</ul>{% else %}<div class="note">Sin bajas hoy.</div>{% endif %}
+  </div>
+
+  <div class="panel">
+    <h3 style="margin:0 0 8px">Cambios de precio (hoy)</h3>
+    {% if pe %}
+    <table>
+      <thead><tr><th>Fecha</th><th>ID</th><th>Título</th><th>Anterior</th><th>Nuevo</th><th>Δ</th><th>%</th></tr></thead>
+      <tbody>{% for e in pe %}<tr><td>{{ e.date }}</td><td>{{ e.listing_id }}</td><td>{{ e.title }}</td><td>{{ e.old_price }}</td><td>{{ e.new_price }}</td><td>{{ e.delta }}</td><td>{{ e.pct }}</td></tr>{% endfor %}</tbody>
+    </table>
+    {% else %}<div class="note">Sin cambios hoy.</div>{% endif %}
+  </div>
+</div>
+
+<script>
+const btn=document.getElementById('btn');
+btn.onclick=async()=>{btn.disabled=true;await fetch('/update',{method:'POST'});poll();}
+async function poll(){const j=await fetch('/status').then(r=>r.json()); if(j.running){setTimeout(poll,1200)} else {location.reload()}}
+</script>
+<hr>
+<h2 style="margin-top:16px">Diario (Altas / Bajas por fecha)</h2>
+
+<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+  <div id="dayButtons" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+  <div style="display:flex;gap:6px;align-items:center">
+    <input type="date" id="dayPicker" />
+    <button class="btn" id="btnGoDay">Ver día</button>
+  </div>
+  <span id="dayStatus" class="note"></span>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:10px">
+  <div>
+    <h3>Altas en <span id="dayLabelA"></span> <span class="pill" id="countA"></span></h3>
+    <div id="altasList" style="display:grid;gap:10px"></div>
+  </div>
+  <div>
+    <h3>Bajas en <span id="dayLabelB"></span> <span class="pill" id="countB"></span></h3>
+    <div id="bajasList" style="display:grid;gap:10px"></div>
+  </div>
+</div>
+
+<style>
+.card{border:1px solid #eee;border-radius:12px;padding:10px;display:flex;gap:10px}
+.card img{width:120px;height:90px;object-fit:cover;border-radius:8px;border:1px solid #ddd;background:#fafafa}
+.meta{font-size:12px;color:#666}
+.pill{display:inline-block;padding:2px 8px;border-radius:999px;background:#eef;margin-left:6px}
+.btn{background:#2563eb;color:#fff;border:none;border-radius:8px;padding:6px 10px;cursor:pointer}
+.note{color:#666;font-size:12px}
+</style>
+
+<script>
+async function fetchJSON(u){ const r=await fetch(u); if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }
+
+function cardHTML(it){
+  const price = it.price ? (Number(it.price).toLocaleString('es-ES')+' €') : '';
+  const km = it.km ? (Number(it.km).toLocaleString('es-ES')+' km') : '';
+  const year = it.year||'';
+  const meta = [year, km, price].filter(Boolean).join(' · ');
+  const img = it.thumb || '';
+  const link = it.link ? `<a href="${it.link}" target="_blank">ver</a>` : '';
+  return `
+  <div class="card">
+    ${img?`<img src="${img}" loading="lazy" alt="">`:''}
+    <div>
+      <div style="font-weight:600">${it.title||''}</div>
+      <div class="meta">${meta}</div>
+      <div class="meta">ID: ${it.listing_id||''} · ${link}</div>
+      <div class="meta">Visto: ${it.first_seen||''} → ${it.last_seen||''} ${it.removed_on?('· Baja: '+it.removed_on):''}</div>
+    </div>
+  </div>`;
+}
+
+async function loadDays(){
+  const d = await fetchJSON('/days');
+  const box = document.getElementById('dayButtons');
+  box.innerHTML = '';
+  const days = d.days.slice(0,7); // últimos 7
+  const picker = document.getElementById('dayPicker');
+  picker.value = days[0] || new Date().toISOString().slice(0,10);
+  for(const day of days){
+    const b = document.createElement('button');
+    b.className='btn'; b.textContent = day;
+    b.onclick = ()=> loadDay(day);
+    box.appendChild(b);
+  }
+  // carga el más reciente
+  if(days.length) loadDay(days[0]);
+}
+
+async function loadDay(day){
+  const st = document.getElementById('dayStatus');
+  st.textContent = 'Cargando '+day+'…';
+  try{
+    const d = await fetchJSON('/bydate?date='+encodeURIComponent(day));
+    document.getElementById('dayLabelA').textContent = d.date;
+    document.getElementById('dayLabelB').textContent = d.date;
+    document.getElementById('countA').textContent = d.counts.altas;
+    document.getElementById('countB').textContent = d.counts.bajas;
+
+    const A = document.getElementById('altasList');
+    const B = document.getElementById('bajasList');
+    A.innerHTML = d.altas.map(cardHTML).join('');
+    B.innerHTML = d.bajas.map(cardHTML).join('');
+    st.textContent = 'OK';
+  }catch(e){
+    st.textContent = 'Error cargando día';
+    console.error(e);
+  }
+}
+
+document.getElementById('btnGoDay').onclick = ()=>{
+  const v = document.getElementById('dayPicker').value;
+  if(v) loadDay(v);
+};
+loadDays();
+</script>
