@@ -1,0 +1,7 @@
+start_url: "https://www.autoscout24.es/profesionales/love-cars"
+delay_seconds: 1.5
+detail_delay_seconds: 1.0
+max_pages: 400
+output_dir: "./data"
+daily_run: "08:15"
+timezone: "Europe/Madrid"
