@@ -1,0 +1,63 @@
+name: Daily scrape
+on:
+  schedule:
+    - cron: '15 6 * * *'   # 06:15 UTC ≈ 08:15 Madrid
+  workflow_dispatch: {}     # permitir lanzarlo a mano
+
+permissions:
+  contents: write
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps (Playwright incl.)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m playwright install-deps
+          python -m playwright install chromium
+
+      - name: Run scraper
+        env:
+          TZ: Europe/Madrid
+        run: |
+          python - <<'PY'
+          import json, autoscout_scraper
+          res = autoscout_scraper.run_once('config.yaml')
+          print(json.dumps(res, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Build manifest
+        run: |
+          python - <<'PY'
+          import json, glob, os
+          from datetime import date
+          os.makedirs('data', exist_ok=True)
+          today = date.today().isoformat()
+          def pick(pat):
+            xs = sorted(glob.glob(pat))
+            return xs[-1] if xs else ""
+          manifest = {
+            "today": today,
+            "consolidated_csv": pick(f"data/lovecars_autoscout_consolidado_{today}.csv"),
+            "price_events_csv": pick(f"data/lovecars_price_events_{today}.csv"),
+            "master_csv": "data/lovecars_tracker_master.csv"
+          }
+          with open("data/manifest.json","w") as f: json.dump(manifest,f,ensure_ascii=False,indent=2)
+          PY
+
+      - name: Commit data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/*.csv data/*.json || true
+          git commit -m "data: update" || echo "No changes"
+          git push
