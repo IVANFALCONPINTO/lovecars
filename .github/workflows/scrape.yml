@@ -47,3 +47,42 @@ jobs:
           from datetime import date
           os.makedirs('data', exist_ok=True)
           today = date.today().isoformat()
+          def pick(pat):
+            xs = sorted(glob.glob(pat))
+            return xs[-1] if xs else ""
+          manifest = {
+            "today": today,
+            "consolidated_csv": pick(f"data/lovecars_autoscout_consolidado_{today}.csv"),
+            "price_events_csv": pick(f"data/lovecars_price_events_{today}.csv"),
+            "master_csv": "data/lovecars_tracker_master.csv"
+          }
+          with open("data/manifest.json","w") as f: json.dump(manifest,f,ensure_ascii=False,indent=2)
+          PY
+
+      # === COPIA A LA WEB ESTÁTICA /site PARA VERCEL ===
+      - name: Expose manifest to site
+        run: |
+          mkdir -p site/data
+          cp -f data/manifest.json site/data/manifest.json
+          ls -l data || true
+          ls -l site/data || true
+
+      # === COMMIT DE DATA + SITE (robusto) ===
+      - name: Commit data
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Añade manifiestos y CSV si existen
+          git add site/data/manifest.json || true
+          git add -f data/manifest.json || true
+          git add data/*.csv || true
+
+          git commit -m "data: update manifest and csv [skip ci]" || echo "No changes to commit"
+
+          # Integra posibles cambios remotos y empuja
+          git pull --rebase origin "${BRANCH:-main}" || true
+          git push origin HEAD:"${BRANCH:-main}"
+
